@@ -1,0 +1,8 @@
+{
+  "name": "MoodMelody 3D",
+  "description": "An interactive 3D music visualization experience driven by your facial expressions and real-time audio analysis.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
