@@ -1,5 +1,11 @@
+export enum Emotion {
+  HAPPY = 'HAPPY',
+  CALM = 'CALM',
+  SAD = 'SAD'
+}
+
 export interface SystemState {
-  isHappy: boolean;
+  emotion: Emotion;
   mouthOpenness: number;
   soundAmplitude: number;
   soundFrequency: number;
@@ -10,6 +16,7 @@ export interface VisualizerConfig {
   sphereRadius: number;
   particleRadius: number;
   happyColor: number;
+  calmColor: number;
   sadColor: number;
   happySpeed: number;
   sadSpeed: number;

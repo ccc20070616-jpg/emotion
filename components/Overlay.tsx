@@ -1,6 +1,6 @@
 import React from 'react';
-import { Activity, Mic, Smile, Frown, Volume2, Music, Loader2, Pause, Play } from 'lucide-react';
-import { SystemState, AppStatus } from '../types';
+import { Activity, Mic, Smile, Frown, Volume2, Music, Loader2, Pause, Play, Meh } from 'lucide-react';
+import { SystemState, AppStatus, Emotion } from '../types';
 
 interface OverlayProps {
   status: AppStatus;
@@ -80,6 +80,34 @@ const Overlay: React.FC<OverlayProps> = ({ status, systemState, onStart, onToggl
     );
   }
 
+  // Helper to render emotion icon/text
+  const renderEmotionStatus = () => {
+    switch(systemState.emotion) {
+      case Emotion.HAPPY:
+        return (
+           <div className="text-xl font-mono font-bold flex items-center gap-2 text-orange-500 shadow-orange-500/50 drop-shadow-md">
+             <Smile className="w-6 h-6" />
+             <span>HAPPY</span>
+           </div>
+        );
+      case Emotion.SAD:
+        return (
+           <div className="text-xl font-mono font-bold flex items-center gap-2 text-purple-500 shadow-purple-500/50 drop-shadow-md">
+             <Frown className="w-6 h-6" />
+             <span>ANXIOUS</span>
+           </div>
+        );
+      case Emotion.CALM:
+      default:
+        return (
+           <div className="text-xl font-mono font-bold flex items-center gap-2 text-cyan-400 shadow-cyan-400/50 drop-shadow-md">
+             <Meh className="w-6 h-6" />
+             <span>CALM</span>
+           </div>
+        );
+    }
+  };
+
   // Running State UI
   return (
     <div className="absolute inset-0 pointer-events-none z-40">
@@ -96,14 +124,9 @@ const Overlay: React.FC<OverlayProps> = ({ status, systemState, onStart, onToggl
           <div className="space-y-4">
             <div>
               <div className="flex items-center gap-2 mb-1 text-sm text-gray-300">
-                {systemState.isHappy ? <Smile className="w-4 h-4 text-orange-400" /> : <Frown className="w-4 h-4 text-blue-400" />}
                 <span>Emotion</span>
               </div>
-              <div className="text-xl font-mono font-bold flex items-center gap-2">
-                <span className={systemState.isHappy ? "text-orange-400" : "text-blue-400"}>
-                  {systemState.isHappy ? 'HAPPY' : 'SERIOUS'}
-                </span>
-              </div>
+              {renderEmotionStatus()}
             </div>
 
             <div>
@@ -112,7 +135,7 @@ const Overlay: React.FC<OverlayProps> = ({ status, systemState, onStart, onToggl
               </div>
               <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
                 <div 
-                  className="h-full bg-white transition-all duration-75" 
+                  className="h-full bg-white transition-all duration-75 shadow-[0_0_10px_rgba(255,255,255,0.5)]" 
                   style={{ width: `${Math.min(systemState.mouthOpenness * 100, 100)}%` }}
                 />
               </div>

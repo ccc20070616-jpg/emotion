@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { CONFIG } from '../constants';
-import { SystemState } from '../types';
+import { SystemState, Emotion } from '../types';
 
 interface VisualizerCanvasProps {
   systemStateRef: React.MutableRefObject<SystemState>;
@@ -17,7 +17,10 @@ const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({ systemStateRef, isP
   const particlesRef = useRef<THREE.Points | null>(null);
   const frameIdRef = useRef<number>(0);
   
-  // Ref to track pause state inside the animation closure
+  // Track hue for color flow
+  const colorFlowRef = useRef<number>(0);
+  
+  // Ref to track pause state
   const isPausedRef = useRef(isPaused);
 
   useEffect(() => {
@@ -29,10 +32,12 @@ const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({ systemStateRef, isP
 
     // --- Init Scene ---
     const scene = new THREE.Scene();
+    // Add Volumetric Fog (Exp2 for density gradient)
+    scene.fog = new THREE.FogExp2(0x000000, 0.002);
     sceneRef.current = scene;
 
     // --- Init Camera ---
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1500);
     camera.position.z = 300;
     cameraRef.current = camera;
 
@@ -45,11 +50,12 @@ const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({ systemStateRef, isP
     rendererRef.current = renderer;
 
     // --- Init Objects ---
-    // 1. Sphere
+    // 1. Sphere - High emissive for Glow effect
     const sphereGeometry = new THREE.SphereGeometry(CONFIG.sphereRadius, 64, 64);
     const sphereMaterial = new THREE.MeshPhongMaterial({
       color: CONFIG.happyColor,
-      emissive: 0x111111,
+      emissive: CONFIG.happyColor,
+      emissiveIntensity: 0.8, // Enhanced glow
       shininess: 100,
       flatShading: false,
     });
@@ -58,18 +64,18 @@ const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({ systemStateRef, isP
     sphereRef.current = sphere;
 
     // 2. Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
     scene.add(ambientLight);
 
-    const pointLight = new THREE.PointLight(0xffffff, 1, 500);
+    const pointLight = new THREE.PointLight(0xffffff, 1.5, 800);
     pointLight.position.set(100, 100, 100);
     scene.add(pointLight);
 
-    const backLight = new THREE.PointLight(0x5555ff, 0.5, 500);
+    const backLight = new THREE.PointLight(0x5555ff, 1.0, 800);
     backLight.position.set(-100, -100, -100);
     scene.add(backLight);
 
-    // 3. Particles
+    // 3. Particles - Enhanced Size for Bloom-like effect
     const particleGeometry = new THREE.BufferGeometry();
     const positions = new Float32Array(CONFIG.particleCount * 3);
     const colors = new Float32Array(CONFIG.particleCount * 3);
@@ -79,10 +85,9 @@ const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({ systemStateRef, isP
 
     for (let i = 0; i < CONFIG.particleCount; i++) {
       const i3 = i * 3;
-      // Distribute in a spherical shell area
-      const r = 100 + Math.random() * 200; 
-      // Convert polar to cartesian (2D ring distribution mostly, slightly 3D)
-      // Let's make it a cloud around the sphere
+      // Start slightly further out for fog integration
+      const r = 160 + Math.random() * 300; 
+      
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos((Math.random() * 2) - 1);
       
@@ -94,20 +99,20 @@ const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({ systemStateRef, isP
       colors[i3 + 1] = baseColor.g;
       colors[i3 + 2] = baseColor.b;
 
-      sizes[i] = CONFIG.particleRadius * (0.5 + Math.random() * 1.5);
+      // Varied sizes for depth
+      sizes[i] = CONFIG.particleRadius * (0.5 + Math.random() * 2.5);
     }
 
     particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-    // Custom shader material for better particle control or standard PointsMaterial
     const particleMaterial = new THREE.PointsMaterial({
       size: CONFIG.particleRadius,
       vertexColors: true,
       transparent: true,
       opacity: 0.8,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.AdditiveBlending, // Enhances glow when particles overlap
       sizeAttenuation: true
     });
 
@@ -131,7 +136,6 @@ const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({ systemStateRef, isP
     const animate = () => {
       frameIdRef.current = requestAnimationFrame(animate);
       
-      // If paused, just render the static scene without updating logic
       if (isPausedRef.current) {
         if (rendererRef.current && sceneRef.current && cameraRef.current) {
            rendererRef.current.render(sceneRef.current, cameraRef.current);
@@ -140,62 +144,88 @@ const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({ systemStateRef, isP
       }
 
       const state = systemStateRef.current;
-      const { isHappy, soundAmplitude, soundFrequency } = state;
+      const { emotion, soundAmplitude, soundFrequency } = state;
 
-      const targetColorVal = isHappy ? CONFIG.happyColor : CONFIG.sadColor;
-      const targetSpeed = isHappy ? CONFIG.happySpeed : CONFIG.sadSpeed;
-      
-      const targetColor = new THREE.Color(targetColorVal);
+      // Determine Target Base Color
+      let targetHex = CONFIG.calmColor;
+      let targetSpeed = 0.02;
+
+      if (emotion === Emotion.HAPPY) {
+        targetHex = CONFIG.happyColor;
+        targetSpeed = CONFIG.happySpeed;
+      } else if (emotion === Emotion.SAD) {
+        targetHex = CONFIG.sadColor;
+        targetSpeed = CONFIG.sadSpeed;
+      } else {
+        targetHex = CONFIG.calmColor;
+        targetSpeed = 0.02; // Calm speed
+      }
+
+      // RGB Flow Logic: Shift Hue slightly over time
+      colorFlowRef.current += 0.002;
+      const baseObjColor = new THREE.Color(targetHex);
+      const hsl = { h: 0, s: 0, l: 0 };
+      baseObjColor.getHSL(hsl);
+      // Subtle shift +/- 0.05 on Hue based on sine wave
+      const flowingHue = (hsl.h + Math.sin(colorFlowRef.current) * 0.05 + 1) % 1; 
+      baseObjColor.setHSL(flowingHue, 1.0, 0.5); // Force high saturation (1.0)
 
       // Update Sphere
       if (sphereRef.current) {
         const mat = sphereRef.current.material as THREE.MeshPhongMaterial;
-        mat.color.lerp(targetColor, 0.05);
+        mat.color.lerp(baseObjColor, 0.05);
         
-        // Emissive pulse based on audio
-        const emissiveIntensity = 0.2 + (soundAmplitude * 0.5);
+        // Emissive pulse
+        const emissiveIntensity = 0.5 + (soundAmplitude * 1.5); // High glow
         mat.emissive.setRGB(
-          mat.color.r * emissiveIntensity,
-          mat.color.g * emissiveIntensity,
-          mat.color.b * emissiveIntensity
+          mat.color.r,
+          mat.color.g,
+          mat.color.b
         );
+        mat.emissiveIntensity = emissiveIntensity;
 
-        // Rotation
+        // Movement
         sphereRef.current.rotation.y += 0.005 + (soundFrequency * 0.02);
         sphereRef.current.rotation.z += 0.002;
         
-        // Scale pulse
-        const scale = 1 + (soundAmplitude * 0.3);
-        sphereRef.current.scale.setScalar(THREE.MathUtils.lerp(sphereRef.current.scale.x, scale, 0.2));
+        const pulseStrength = 0.8; 
+        const targetScale = 1 + (soundAmplitude * pulseStrength);
+        sphereRef.current.scale.setScalar(THREE.MathUtils.lerp(sphereRef.current.scale.x, targetScale, 0.2));
+
+        const shakeStrength = 6.0; 
+        const jitter = soundAmplitude * shakeStrength;
+        sphereRef.current.position.x = (Math.random() - 0.5) * jitter;
+        sphereRef.current.position.y = (Math.random() - 0.5) * jitter;
+        sphereRef.current.position.z = (Math.random() - 0.5) * jitter;
       }
 
       // Update Particles
       if (particlesRef.current) {
-        const positions = particlesRef.current.geometry.attributes.position.array as Float32Array;
         const colors = particlesRef.current.geometry.attributes.color.array as Float32Array;
         const count = CONFIG.particleCount;
         
-        // const time = Date.now() * 0.001; // Unused for now
-        // const waveAmp = 20 + (soundAmplitude * 80); // Unused for now
-        // const waveFreq = 1 + (soundFrequency * 5); // Unused for now
-
-        // Rotate the whole particle system for base movement
         particlesRef.current.rotation.y += targetSpeed * (1 + soundFrequency);
         particlesRef.current.rotation.x += targetSpeed * 0.5;
 
-        // Color update
+        // Apply flowing color to particles
         for (let i = 0; i < count; i++) {
           const i3 = i * 3;
-          // Simple lerp for color
-          colors[i3] += (targetColor.r - colors[i3]) * 0.02;
-          colors[i3 + 1] += (targetColor.g - colors[i3 + 1]) * 0.02;
-          colors[i3 + 2] += (targetColor.b - colors[i3 + 2]) * 0.02;
+          colors[i3] += (baseObjColor.r - colors[i3]) * 0.03;
+          colors[i3 + 1] += (baseObjColor.g - colors[i3 + 1]) * 0.03;
+          colors[i3 + 2] += (baseObjColor.b - colors[i3 + 2]) * 0.03;
         }
         particlesRef.current.geometry.attributes.color.needsUpdate = true;
         
-        // Pulse particle system size
-        const pScale = 1 + (soundAmplitude * 0.1);
+        const pScale = 1 + (soundAmplitude * 0.15);
         particlesRef.current.scale.setScalar(pScale);
+      }
+
+      // Sync fog color slightly with emotion
+      if (sceneRef.current.fog) {
+          const fog = sceneRef.current.fog as THREE.FogExp2;
+          // Very dark version of the base color for fog
+          const fogColor = baseObjColor.clone().multiplyScalar(0.1); 
+          fog.color.lerp(fogColor, 0.02);
       }
 
       rendererRef.current?.render(sceneRef.current!, cameraRef.current!);
@@ -203,7 +233,6 @@ const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({ systemStateRef, isP
 
     animate();
 
-    // Cleanup
     return () => {
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(frameIdRef.current);
@@ -212,13 +241,12 @@ const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({ systemStateRef, isP
         containerRef.current.removeChild(rendererRef.current.domElement);
       }
       
-      // Dispose Geometries/Materials
       sphereGeometry.dispose();
       sphereMaterial.dispose();
       particleGeometry.dispose();
       particleMaterial.dispose();
     };
-  }, []); // Run once on mount
+  }, []);
 
   return <div ref={containerRef} className="absolute inset-0 w-full h-full" />;
 };
