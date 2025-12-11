@@ -7,8 +7,11 @@ export enum Emotion {
 export interface SystemState {
   emotion: Emotion;
   mouthOpenness: number;
+  mouthCurvature: number; // New metric: >0 Smile, <0 Frown
   soundAmplitude: number;
   soundFrequency: number;
+  handPosition: { x: number, y: number };
+  isFist: boolean;
 }
 
 export interface VisualizerConfig {

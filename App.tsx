@@ -8,217 +8,255 @@ const App: React.FC = () => {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [error, setError] = useState<string>('');
   
-  // Refs for mutable data to avoid re-renders in the loop
+  // Refs for mutable data
   const systemStateRef = useRef<SystemState>({
     emotion: Emotion.CALM,
     mouthOpenness: 0,
+    mouthCurvature: 0,
     soundAmplitude: 0,
     soundFrequency: 0,
+    handPosition: { x: 0, y: 0 },
+    isFist: false,
   });
 
-  // Track status in a ref for access inside camera callbacks
   const statusRef = useRef<AppStatus>(AppStatus.IDLE);
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  
+  // --- Generative Audio Engine Refs ---
   const audioContextRef = useRef<AudioContext | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
+  const windFilterRef = useRef<BiquadFilterNode | null>(null);
+  const windGainRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const audioElementRef = useRef<HTMLAudioElement | null>(null);
-  const faceMeshRef = useRef<any>(null); 
+  
+  // AI Model Refs
+  const handsRef = useRef<any>(null); 
+  const faceMeshRef = useRef<any>(null);
   const cameraRef = useRef<any>(null);
 
-  // --- Advanced Face Detection State Refs ---
-  const smoothMouthRef = useRef(0);
-  const smoothCurvatureRef = useRef(0); // Track mouth curvature
-  const emotionTimerRef = useRef(0);
-  const stableEmotionRef = useRef<Emotion>(Emotion.CALM);
-
-  // --- Logic: Initialize FaceMesh ---
-  const initFaceMesh = async () => {
+  // --- Logic: Initialize Tracking (Hands + Face) ---
+  const initTracking = async () => {
     try {
+      // 1. Hands Setup
+      const HandsClass = (window as any).Hands || (window as any).mediapipe?.hands?.Hands;
       const FaceMeshClass = (window as any).FaceMesh || (window as any).mediapipe?.face_mesh?.FaceMesh;
 
-      if (!FaceMeshClass) {
-        throw new Error("FaceMesh library not loaded. Please check your connection.");
+      if (!HandsClass || !FaceMeshClass) {
+        throw new Error("AI libraries not loaded. Please check your connection.");
       }
 
+      // --- Hands Config ---
+      const hands = new HandsClass({
+        locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`,
+      });
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 0, // Lite model for performance since we are running two models
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+      hands.onResults((results: any) => {
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+          const landmarks = results.multiHandLandmarks[0];
+          const palmCenter = landmarks[9]; 
+          const wrist = landmarks[0];
+
+          // Normalized position (Mirror X)
+          const x = (1 - palmCenter.x) * 2 - 1; 
+          const y = -(palmCenter.y) * 2 + 1;
+
+          // Fist Detection
+          // Check tip distance to MCP (Index 9)
+          let tipToMcpDist = 0;
+          [8, 12, 16, 20].forEach(idx => {
+             const tip = landmarks[idx];
+             tipToMcpDist += Math.hypot(tip.x - palmCenter.x, tip.y - palmCenter.y);
+          });
+          const isFist = tipToMcpDist < 0.35; 
+
+          systemStateRef.current.handPosition = { x, y };
+          systemStateRef.current.isFist = isFist;
+        }
+      });
+      handsRef.current = hands;
+
+      // --- FaceMesh Config ---
       const faceMesh = new FaceMeshClass({
         locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/${file}`,
       });
-
       faceMesh.setOptions({
         maxNumFaces: 1,
         refineLandmarks: true,
         minDetectionConfidence: 0.5,
         minTrackingConfidence: 0.5,
       });
-
       faceMesh.onResults((results: any) => {
         if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
           const landmarks = results.multiFaceLandmarks[0];
+
+          // Indices:
+          // 61: Left Mouth Corner
+          // 291: Right Mouth Corner
+          // 13: Upper Lip Center
+          // 14: Lower Lip Center
+          const leftCorner = landmarks[61];
+          const rightCorner = landmarks[291];
+          const upperLip = landmarks[13];
+          const lowerLip = landmarks[14];
+
+          // 1. Calculate Mouth Width (for Normalization)
+          const width = Math.hypot(rightCorner.x - leftCorner.x, rightCorner.y - leftCorner.y);
+
+          // 2. Calculate Curvature
+          // Y increases downwards.
+          // Smile: Corners (small Y) are higher than Center (large Y).
+          // Metric = CenterY - CornerY. Positive = Smile.
+          const cornersY = (leftCorner.y + rightCorner.y) / 2;
+          const centerY = (upperLip.y + lowerLip.y) / 2;
           
-          // Indices: 
-          // 61: Left Corner
-          // 291: Right Corner
-          // 13: Upper Lip Inner
-          // 14: Lower Lip Inner
-          const left = landmarks[61];
-          const right = landmarks[291];
-          const top = landmarks[13];
-          const bottom = landmarks[14];
+          let rawCurvature = (centerY - cornersY) / width;
 
-          // 1. Calculate Basic Geometry
-          const mouthW = Math.hypot(right.x - left.x, right.y - left.y);
-          const mouthH = Math.hypot(bottom.x - top.x, bottom.y - top.y);
-          const rawRatio = mouthW > 0 ? mouthH / mouthW : 0;
+          // 3. Smoothing (Exponential Moving Average)
+          const prevCurvature = systemStateRef.current.mouthCurvature;
+          // Apply gentle smoothing
+          const curvature = prevCurvature * 0.9 + rawCurvature * 0.1;
+          systemStateRef.current.mouthCurvature = curvature;
 
-          // 2. Emotion Detection based on Corners (Curvature)
-          // Y increases downwards in screen coordinates.
-          // Center Y of the mouth
-          const centerY = (top.y + bottom.y) / 2;
-          // Average Y of corners
-          const cornersY = (left.y + right.y) / 2;
-          
-          // Calculate curvature relative to width (normalization)
-          // Positive val: Corners are LOWER than center (Frown/Sad)
-          // Negative val: Corners are HIGHER than center (Smile/Happy)
-          const rawCurvature = (cornersY - centerY) / (mouthW * 0.5 || 1); // Normalize
-
-          // 3. Smooth Filtering
-          const smoothFactor = 0.15;
-          smoothMouthRef.current += (rawRatio - smoothMouthRef.current) * smoothFactor;
-          smoothCurvatureRef.current += (rawCurvature - smoothCurvatureRef.current) * smoothFactor;
-          
-          const smoothedOpenness = smoothMouthRef.current;
-          const curvature = smoothCurvatureRef.current;
-
-          // 4. Determine Emotion Candidate
-          // Thresholds tuned for "slight downward = calm", "downward = sad", "upward = happy"
-          let currentEmotion = Emotion.CALM;
-
-          // Thresholds:
-          // <-0.02: Happy (Corners clearly up)
-          // -0.02 to 0.05: Calm (Neutral or slight down)
-          // > 0.05: Sad/Anxious (Corners clearly down)
-          
-          if (curvature < -0.02) {
-            currentEmotion = Emotion.HAPPY;
-          } else if (curvature > 0.05) {
-            currentEmotion = Emotion.SAD;
+          // 4. Determine Emotion State
+          // Thresholds need to be tuned for normalized values
+          // > 0.05 is usually a smile
+          // < -0.02 is usually a frown/sadness
+          if (curvature > 0.04) {
+            systemStateRef.current.emotion = Emotion.HAPPY;
+          } else if (curvature < -0.03) {
+            systemStateRef.current.emotion = Emotion.SAD;
           } else {
-            currentEmotion = Emotion.CALM;
+            systemStateRef.current.emotion = Emotion.CALM;
           }
-
-          // 5. Emotion Debounce
-          if (currentEmotion !== stableEmotionRef.current) {
-            emotionTimerRef.current++;
-            if (emotionTimerRef.current > 5) { // Confirm change after 5 frames
-              stableEmotionRef.current = currentEmotion;
-              emotionTimerRef.current = 0;
-            }
-          } else {
-            emotionTimerRef.current = 0;
-          }
-
-          // Update System State
-          systemStateRef.current.mouthOpenness = Math.min(Math.max(smoothedOpenness, 0), 1);
-          systemStateRef.current.emotion = stableEmotionRef.current;
         }
       });
-
       faceMeshRef.current = faceMesh;
-      return faceMesh;
+
     } catch (err) {
-      console.error("FaceMesh Init Error:", err);
-      throw new Error("Failed to initialize face tracking.");
+      console.error("AI Init Error:", err);
+      throw new Error("Failed to initialize tracking.");
     }
   };
 
-  // --- Logic: Initialize Audio ---
+  // --- Logic: Wind Audio Engine ---
   const initAudio = async () => {
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new AudioContextClass();
       audioContextRef.current = ctx;
 
+      const masterGain = ctx.createGain();
+      masterGain.gain.value = 0.5;
+      masterGainRef.current = masterGain;
+
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 512;
+      analyser.fftSize = 256;
       analyserRef.current = analyser;
 
-      // 1. Microphone
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const micSource = ctx.createMediaStreamSource(stream);
-        micSource.connect(analyser);
-      } catch (e) {
-        console.warn("Microphone access failed:", e);
+      masterGain.connect(analyser);
+      analyser.connect(ctx.destination);
+
+      // --- Wind Synthesis (Pink Noise) ---
+      const bufferSize = 2 * ctx.sampleRate;
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      
+      // Generate Pink Noise
+      let b0=0, b1=0, b2=0, b3=0, b4=0, b5=0, b6=0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        b0 = 0.99886 * b0 + white * 0.0555179;
+        b1 = 0.99332 * b1 + white * 0.0750759;
+        b2 = 0.96900 * b2 + white * 0.1538520;
+        b3 = 0.86650 * b3 + white * 0.3104856;
+        b4 = 0.55000 * b4 + white * 0.5329522;
+        b5 = -0.7616 * b5 - white * 0.0168980;
+        output[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+        output[i] *= 0.11; 
+        b6 = white * 0.115926;
       }
 
-      // 2. Music
-      const audioElem = new Audio();
-      audioElem.src = CONFIG.musicUrl;
-      audioElem.loop = true;
-      audioElem.crossOrigin = "anonymous";
-      
-      const musicSource = ctx.createMediaElementSource(audioElem);
-      musicSource.connect(analyser);
-      musicSource.connect(ctx.destination);
-      
-      await audioElem.play();
-      audioElementRef.current = audioElem;
+      const noiseNode = ctx.createBufferSource();
+      noiseNode.buffer = noiseBuffer;
+      noiseNode.loop = true;
+      noiseNode.start();
+
+      // Wind Filter (Bandpass/Lowpass dynamic)
+      const windFilter = ctx.createBiquadFilter();
+      windFilter.type = 'lowpass';
+      windFilter.frequency.value = 400; // Start low
+      windFilter.Q.value = 1;
+      windFilterRef.current = windFilter;
+
+      const windGain = ctx.createGain();
+      windGain.gain.value = 0.8;
+      windGainRef.current = windGain;
+
+      noiseNode.connect(windFilter);
+      windFilter.connect(windGain);
+      windGain.connect(masterGain);
 
       return ctx;
     } catch (err) {
-      console.error("Audio Init Error:", err);
-      if (err instanceof Error) {
-         throw err;
-      }
-      throw new Error("Failed to access microphone or load music.");
+      console.error("Audio Engine Init Error:", err);
+      throw new Error("Failed to initialize audio engine.");
     }
   };
 
-  // --- Logic: Audio Analysis Loop ---
+  // --- Logic: Generative Update Loop ---
   useEffect(() => {
     if (status !== AppStatus.RUNNING) return;
 
+    let time = 0;
     const interval = setInterval(() => {
-      if (!analyserRef.current || !audioContextRef.current) return;
+      const ctx = audioContextRef.current;
+      if (!ctx || !analyserRef.current) return;
+      time += 0.05;
 
+      const state = systemStateRef.current;
+      
+      // 1. Analyze for Visuals
       const bufferLength = analyserRef.current.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
       analyserRef.current.getByteFrequencyData(dataArray);
-
+      
       let sum = 0;
-      for (let i = 0; i < bufferLength; i++) {
-        sum += dataArray[i];
-      }
+      for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
       const amplitude = sum / (bufferLength * 255);
+      
+      systemStateRef.current.soundAmplitude = systemStateRef.current.soundAmplitude * 0.9 + amplitude * 0.1;
 
-      let numerator = 0;
-      let denominator = 0;
-      for (let i = 0; i < bufferLength; i++) {
-        numerator += i * dataArray[i];
-        denominator += dataArray[i];
-      }
-      const centroid = denominator > 0 ? numerator / denominator : 0;
-      const normalizedFreq = centroid / bufferLength;
-
-      systemStateRef.current.soundAmplitude = amplitude;
-      systemStateRef.current.soundFrequency = normalizedFreq;
-
-      // Update Music Speed based on Emotion
-      if (audioElementRef.current) {
-        const emotion = systemStateRef.current.emotion;
-        let targetRate = 1.0;
+      // 2. Wind Modulation Logic
+      if (windFilterRef.current && windGainRef.current) {
+        // Base wind variation
+        const baseVariation = Math.sin(time * 0.5) * 200 + Math.cos(time * 1.3) * 100;
         
-        if (emotion === Emotion.HAPPY) targetRate = CONFIG.happyMusicRate;
-        else if (emotion === Emotion.SAD) targetRate = CONFIG.sadMusicRate;
-        else targetRate = 1.0; // Calm
+        let targetFreq = 400 + baseVariation;
+        let targetGain = 0.5;
 
-        const currentRate = audioElementRef.current.playbackRate;
-        audioElementRef.current.playbackRate = currentRate + (targetRate - currentRate) * 0.05;
+        // Interaction: Fist creates "Gusts" (Volume/Intensity) but Face controls Atmosphere
+        if (state.isFist) {
+           // Gusty mode
+           targetFreq = 800 + Math.random() * 600;
+           targetGain = 0.8 + Math.random() * 0.3;
+        } else {
+           // Gentle mode 
+           targetFreq = 400 + baseVariation;
+           targetGain = 0.4 + Math.sin(time * 0.2) * 0.1;
+        }
+
+        const now = ctx.currentTime;
+        windFilterRef.current.frequency.setTargetAtTime(targetFreq, now, 0.2);
+        windGainRef.current.gain.setTargetAtTime(targetGain, now, 0.2);
       }
 
     }, 50);
@@ -232,20 +270,18 @@ const App: React.FC = () => {
     setError('');
 
     try {
-      await initAudio();
-      const faceMesh = await initFaceMesh();
+      await initAudio(); 
+      await initTracking();
 
-      if (videoRef.current && faceMesh) {
+      if (videoRef.current && handsRef.current && faceMeshRef.current) {
         const CameraClass = (window as any).Camera || (window as any).mediapipe?.camera_utils?.Camera;
-        
-        if (!CameraClass) {
-            throw new Error("Camera library not loaded.");
-        }
-
         const camera = new CameraClass(videoRef.current, {
           onFrame: async () => {
             if (statusRef.current !== AppStatus.RUNNING) return;
-            if (videoRef.current && faceMeshRef.current) {
+            // Send to both models. 
+            // NOTE: This is heavy. In a production app, we might alternate frames or use a web worker.
+            if (videoRef.current) {
+               await handsRef.current.send({ image: videoRef.current });
                await faceMeshRef.current.send({ image: videoRef.current });
             }
           },
@@ -264,59 +300,41 @@ const App: React.FC = () => {
     }
   };
 
-  // --- Logic: Toggle Pause ---
   const togglePause = async () => {
     if (status === AppStatus.RUNNING) {
-      if (audioContextRef.current && audioContextRef.current.state === 'running') {
-        await audioContextRef.current.suspend();
-      }
-      if (audioElementRef.current) {
-        audioElementRef.current.pause();
-      }
+      if (audioContextRef.current) await audioContextRef.current.suspend();
       setStatus(AppStatus.PAUSED);
     } else if (status === AppStatus.PAUSED) {
-      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-        await audioContextRef.current.resume();
-      }
-      if (audioElementRef.current) {
-        await audioElementRef.current.play();
-      }
+      if (audioContextRef.current) await audioContextRef.current.resume();
       setStatus(AppStatus.RUNNING);
     }
   };
 
-  // --- Sync State for Overlay ---
   const [uiState, setUiState] = useState<SystemState>(systemStateRef.current);
-  
   useEffect(() => {
     if (status !== AppStatus.RUNNING) return;
-    const uiInterval = setInterval(() => {
-        setUiState({ ...systemStateRef.current });
-    }, 200);
+    const uiInterval = setInterval(() => setUiState({ ...systemStateRef.current }), 200);
     return () => clearInterval(uiInterval);
   }, [status]);
 
 
   return (
-    <div className="relative w-full h-screen bg-black overflow-hidden">
-      {/* Video Feed */}
+    <div className="relative w-full h-screen bg-black overflow-hidden font-serif">
       <video
         ref={videoRef}
-        className={`absolute bottom-6 right-6 w-48 sm:w-64 aspect-video object-cover rounded-xl border-2 border-white/10 shadow-[0_0_30px_rgba(0,0,0,0.6)] z-30 transition-all duration-700 ${
+        className={`absolute bottom-6 right-6 w-48 sm:w-64 aspect-video object-cover rounded-xl border border-white/20 shadow-[0_0_30px_rgba(0,0,0,0.6)] z-30 transition-all duration-700 ${
             status === AppStatus.RUNNING || status === AppStatus.PAUSED ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none'
         }`}
         playsInline
         muted
         style={{ transform: 'scaleX(-1)' }}
       />
-
-      {/* Visualizer */}
+      
       <VisualizerCanvas 
         systemStateRef={systemStateRef} 
         isPaused={status === AppStatus.PAUSED}
       />
-
-      {/* Overlay */}
+      
       <Overlay 
         status={status} 
         onStart={handleStart} 

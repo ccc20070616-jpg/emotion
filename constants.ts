@@ -1,14 +1,14 @@
 import { VisualizerConfig } from './types';
 
 export const CONFIG: VisualizerConfig = {
-  particleCount: 1500,  // Increased for denser fog effect
+  particleCount: 20000, // Used for Grass Blade count now
   sphereRadius: 80,
-  particleRadius: 3.0,  // Slightly larger for glow
+  particleRadius: 3.0,
   
-  // High Saturation / Neon Colors
-  happyColor: 0xFF2A00, // Vivid Red-Orange
-  calmColor: 0x00FFD5,  // Vivid Cyan/Teal
-  sadColor: 0x6200FF,   // Vivid Indigo/Electric Purple
+  // Nature / Healing Colors
+  happyColor: 0x66FF66, // Vibrant Spring Green
+  calmColor: 0xE6C229,  // Golden Hour / Warm Wheat
+  sadColor: 0x4A6B8A,   // Stormy Blue-Grey
 
   happySpeed: 0.02,
   sadSpeed: 0.05,
