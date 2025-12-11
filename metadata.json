@@ -1,6 +1,6 @@
 {
-  "name": "MoodMelody 3D",
-  "description": "An interactive 3D music visualization experience driven by your facial expressions and real-time audio analysis.",
+  "name": "心灵草甸 3D",
+  "description": "一种交互式 3D 音乐可视化体验，由您的面部表情和实时音频分析驱动。",
   "requestFramePermissions": [
     "camera",
     "microphone"

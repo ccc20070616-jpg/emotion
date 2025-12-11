@@ -1,12 +1,12 @@
 import { VisualizerConfig } from './types';
 
 export const CONFIG: VisualizerConfig = {
-  particleCount: 20000, // Used for Grass Blade count now
+  particleCount: 80000, // Increased for a larger world density
   sphereRadius: 80,
   particleRadius: 3.0,
   
   // Nature / Healing Colors
-  happyColor: 0x66FF66, // Vibrant Spring Green
+  happyColor: 0xB0D66B, // Lighter, more realistic Yellow-Green (was 0x66FF66)
   calmColor: 0xE6C229,  // Golden Hour / Warm Wheat
   sadColor: 0x4A6B8A,   // Stormy Blue-Grey
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, Pause, Play, Hand, Mic, Activity, Sun, CloudRain, Wind, Volume2, Smile } from 'lucide-react';
+import { Loader2, Pause, Play, Hand, Mic, Activity, Sun, CloudRain, Wind, Volume2, Smile, Move, Gamepad2 } from 'lucide-react';
 import { SystemState, AppStatus, Emotion } from '../types';
 
 interface OverlayProps {
@@ -20,12 +20,13 @@ const Overlay: React.FC<OverlayProps> = ({ status, systemState, onStart, onToggl
       <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-stone-900/90 text-amber-50 font-serif">
         <div className="max-w-lg text-center p-8">
           <h1 className="text-6xl italic font-light tracking-wide mb-6 bg-gradient-to-br from-amber-100 to-amber-600 bg-clip-text text-transparent">
-            Meadow of Mind
+            心灵草甸
           </h1>
           <p className="text-stone-400 text-lg leading-relaxed mb-12 font-light">
-            A digital sanctuary shaped by your presence. <br/>
-            <span className="text-amber-200">Smile</span> to bring the Sun. <span className="text-blue-300">Frown</span> to bring the Rain. <br/>
-            Guide the spirit orb with your hand.
+            一个由你的存在塑造的数字避难所。<br/>
+            <span className="text-amber-200">微笑</span> 唤来阳光，<span className="text-blue-300">皱眉</span> 召集风雨。<br/>
+            <span className="text-amber-200">张开</span>手掌前进，<span className="text-red-300">握拳</span>后退。<br/>
+            手偏离画面中心越远，飞行速度越快。
           </p>
           
           <button
@@ -33,14 +34,13 @@ const Overlay: React.FC<OverlayProps> = ({ status, systemState, onStart, onToggl
             className="group px-10 py-3 border border-amber-500/30 rounded-full hover:bg-amber-500/10 transition-all duration-500 ease-out backdrop-blur-md"
           >
             <span className="text-sm tracking-[0.2em] uppercase font-sans font-light group-hover:tracking-[0.3em] transition-all text-amber-100">
-              Enter the Field
+              进入草甸
             </span>
           </button>
           
           <div className="mt-8 flex items-center justify-center gap-6 text-xs text-stone-500 font-sans tracking-widest uppercase">
-            <span className="flex items-center gap-1"><Hand className="w-3 h-3"/> Hand</span>
-            <span className="flex items-center gap-1"><Smile className="w-3 h-3"/> Face</span>
-            <span className="flex items-center gap-1"><Volume2 className="w-3 h-3"/> Audio</span>
+            <span className="flex items-center gap-1"><Hand className="w-3 h-3"/> 张开前进 / 握拳后退</span>
+            <span className="flex items-center gap-1"><Smile className="w-3 h-3"/> 面部表情</span>
           </div>
         </div>
       </div>
@@ -52,7 +52,7 @@ const Overlay: React.FC<OverlayProps> = ({ status, systemState, onStart, onToggl
     return (
       <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-stone-900 text-amber-50 font-serif">
         <Loader2 className="w-8 h-8 animate-spin text-amber-600 mb-4 font-thin" />
-        <p className="text-sm tracking-[0.2em] uppercase text-stone-500">Planting Seeds...</p>
+        <p className="text-sm tracking-[0.2em] uppercase text-stone-500">正在播种...</p>
       </div>
     );
   }
@@ -63,7 +63,7 @@ const Overlay: React.FC<OverlayProps> = ({ status, systemState, onStart, onToggl
       <div className="absolute inset-0 z-50 flex items-center justify-center bg-stone-900 text-white font-serif">
         <div className="text-center">
           <p className="text-red-400 italic mb-4">{error}</p>
-          <button onClick={() => window.location.reload()} className="border-b border-white/30 text-sm">Reload</button>
+          <button onClick={() => window.location.reload()} className="border-b border-white/30 text-sm">重新加载</button>
         </div>
       </div>
     );
@@ -86,9 +86,9 @@ const Overlay: React.FC<OverlayProps> = ({ status, systemState, onStart, onToggl
   // --- Active Art Status Helper ---
   const getEmotionText = () => {
     switch(systemState.emotion) {
-      case Emotion.HAPPY: return "Growth (Summer)";
-      case Emotion.SAD: return "Storm (Winter)";
-      case Emotion.CALM: default: return "Tranquility (Autumn)";
+      case Emotion.HAPPY: return "生长 (夏)";
+      case Emotion.SAD: return "风暴 (冬)";
+      case Emotion.CALM: default: return "宁静 (秋)";
     }
   };
 
@@ -98,14 +98,14 @@ const Overlay: React.FC<OverlayProps> = ({ status, systemState, onStart, onToggl
         return (
            <div className="text-lg font-serif italic flex items-center gap-2 text-green-300 drop-shadow-[0_0_10px_rgba(74,222,128,0.5)]">
              <Sun className="w-5 h-5" />
-             <span>Vibrant</span>
+             <span>生机勃勃</span>
            </div>
         );
       case Emotion.SAD:
         return (
            <div className="text-lg font-serif italic flex items-center gap-2 text-blue-300 drop-shadow-[0_0_10px_rgba(147,197,253,0.5)]">
              <CloudRain className="w-5 h-5" />
-             <span>Stormy</span>
+             <span>风雨交加</span>
            </div>
         );
       case Emotion.CALM:
@@ -113,7 +113,7 @@ const Overlay: React.FC<OverlayProps> = ({ status, systemState, onStart, onToggl
         return (
            <div className="text-lg font-serif italic flex items-center gap-2 text-amber-300 drop-shadow-[0_0_10px_rgba(252,211,77,0.5)]">
              <Wind className="w-5 h-5" />
-             <span>Calm</span>
+             <span>平静祥和</span>
            </div>
         );
     }
@@ -126,7 +126,7 @@ const Overlay: React.FC<OverlayProps> = ({ status, systemState, onStart, onToggl
         <div className="absolute top-6 left-6 pointer-events-auto">
           <div className="bg-stone-900/30 backdrop-blur-md p-5 rounded-lg border border-amber-500/10 space-y-4 w-60 shadow-2xl transition-all hover:bg-stone-900/50">
             <div className="flex items-center justify-between border-b border-amber-500/10 pb-2">
-              <span className="text-[10px] font-sans font-bold uppercase tracking-[0.2em] text-stone-400">Environment</span>
+              <span className="text-[10px] font-sans font-bold uppercase tracking-[0.2em] text-stone-400">环境参数</span>
               <Activity className="w-3 h-3 text-amber-500/50 animate-pulse" />
             </div>
 
@@ -134,29 +134,32 @@ const Overlay: React.FC<OverlayProps> = ({ status, systemState, onStart, onToggl
               {/* Emotion / Weather */}
               <div>
                 <div className="flex items-center gap-2 mb-1 text-[10px] uppercase tracking-wider text-stone-500 font-sans">
-                  <span>Season (Face)</span>
+                  <span>季节 (面部)</span>
                 </div>
                 {renderEmotionIcon()}
                 <div className="text-[9px] text-stone-600 mt-1 font-mono">
-                  Curve: {systemState.mouthCurvature.toFixed(3)}
+                  曲率: {systemState.mouthCurvature.toFixed(3)}
                 </div>
               </div>
               
               {/* Hand State */}
               <div>
                  <div className="flex items-center gap-2 mb-1 text-[10px] uppercase tracking-wider text-stone-500 font-sans">
-                  <span>Physics (Hand)</span>
+                  <span>物理 (手势)</span>
                 </div>
                 <div className="text-amber-100 text-sm flex items-center gap-2">
                     <Hand className="w-4 h-4 text-amber-500" />
-                    <span>{systemState.isFist ? "Strong Wind" : "Gentle Breeze"}</span>
+                    <span>{systemState.isFist ? "后退 / 握拳" : "前进 / 张开"}</span>
+                </div>
+                <div className="text-[9px] text-stone-500 mt-1 font-sans">
+                   偏移: X:{systemState.handPosition.x.toFixed(2)} Y:{systemState.handPosition.y.toFixed(2)}
                 </div>
               </div>
 
               {/* Wind Strength */}
               <div>
                 <div className="flex items-center justify-between gap-2 mb-2 text-[10px] uppercase tracking-wider text-stone-500 font-sans">
-                  <span>Audio Level</span>
+                  <span>音频强度</span>
                   <span className="font-mono text-amber-100/70">{systemState.soundAmplitude.toFixed(2)}</span>
                 </div>
                 <div className="h-1 bg-white/10 rounded-full overflow-hidden">
